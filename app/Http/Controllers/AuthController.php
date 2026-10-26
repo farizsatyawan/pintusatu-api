@@ -115,8 +115,8 @@ class AuthController extends Controller
                     'expires_in' => auth('api')->factory()->getTTL() * 60,
                 ],
             ], Response::HTTP_CREATED);
-        } catch (Throwable $e) {
-            DB::rollBack();
+        } catch (\Throwable $e) {
+              DB::rollBack();
 
             return response()->json([
                 'status' => 'error',
@@ -213,7 +213,7 @@ class AuthController extends Controller
                     ],
                 ],
             ], Response::HTTP_CREATED);
-        } catch (Throwable $e) {
+        } catch (\Throwable $e) {
             DB::rollBack();
 
             return response()->json([
