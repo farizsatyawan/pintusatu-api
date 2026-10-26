@@ -17,11 +17,16 @@ class SaaSSubscriptionTest extends TestCase
      */
     public function test_can_register_trial_with_owner_role_and_14_days_subscription(): void
     {
+        $package = Package::first();
+
         $payload = [
             'name' => 'Owner Trial',
             'email' => 'owner.trial@example.com',
             'password' => 'secret123',
             'nama_kos' => 'Kos Berkah Pintu Satu',
+            'whatsapp' => '081234567890',
+            'jumlah_pintu' => 10,
+            'package_id' => $package->id,
             'role' => 'admin', // Should be ignored and forced to 'owner'
         ];
 
@@ -36,8 +41,7 @@ class SaaSSubscriptionTest extends TestCase
                 'status',
                 'message',
                 'data' => [
-                    'user' => ['id', 'name', 'email', 'role'],
-                    'nama_kos',
+                    'user' => ['id', 'name', 'nama_kos', 'email', 'whatsapp', 'jumlah_pintu', 'role', 'status', 'is_active'],
                     'subscription' => ['id', 'user_id', 'package_name', 'status', 'starts_at', 'trial_ends_at', 'expires_at'],
                     'token',
                     'token_type',
@@ -45,10 +49,14 @@ class SaaSSubscriptionTest extends TestCase
                 ],
             ]);
 
-        // Verifikasi role harus 'owner'
+        // Verifikasi role harus 'owner', status 'active', is_active true
         $this->assertDatabaseHas('users', [
             'email' => 'owner.trial@example.com',
             'role' => 'owner',
+            'whatsapp' => '081234567890',
+            'jumlah_pintu' => 10,
+            'status' => 'active',
+            'is_active' => true,
         ]);
 
         // Verifikasi subscription trial
@@ -61,6 +69,36 @@ class SaaSSubscriptionTest extends TestCase
         $this->assertNotNull($subscription->starts_at);
         $this->assertNotNull($subscription->trial_ends_at);
         $this->assertNull($subscription->expires_at);
+    }
+
+    /**
+     * Test cannot register trial when jumlah_pintu exceeds package max_doors.
+     */
+    public function test_cannot_register_trial_when_doors_exceed_package_limit(): void
+    {
+        $package = Package::where('max_doors', '>', 0)->first() ?? Package::first();
+
+        $payload = [
+            'name' => 'Owner Over Limit',
+            'email' => 'owner.overlimit@example.com',
+            'password' => 'secret123',
+            'nama_kos' => 'Kos Terlalu Banyak Pintu',
+            'whatsapp' => '08999999999',
+            'jumlah_pintu' => $package->max_doors + 10, // Melebihi kapasitas
+            'package_id' => $package->id,
+        ];
+
+        $response = $this->postJson('/api/register/trial', $payload);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'error',
+            ])
+            ->assertJsonStructure([
+                'status',
+                'message',
+                'errors' => ['jumlah_pintu'],
+            ]);
     }
 
     /**

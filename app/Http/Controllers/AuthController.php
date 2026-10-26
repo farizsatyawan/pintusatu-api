@@ -7,6 +7,7 @@ use App\Http\Requests\RegisterPaidRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Http\Requests\RegisterTrialRequest;
 use App\Models\Order;
+use App\Models\Package;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Services\MidtransService;
@@ -46,29 +47,53 @@ class AuthController extends Controller
     }
 
     /**
-     * Registrasi akun pemilik kos baru dengan masa trial 14 hari.
+     * Registrasi akun pemilik kos baru dengan masa trial.
      */
     public function registerTrial(RegisterTrialRequest $request): JsonResponse
     {
+        $package = Package::find($request->validated('package_id'));
+
+        if (! $package) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Paket langganan tidak ditemukan.',
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        // Pengecekan batasan jumlah pintu (max_doors)
+        $jumlahPintu = (int) $request->validated('jumlah_pintu');
+        if ($package->max_doors !== -1 && $jumlahPintu > $package->max_doors) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Jumlah pintu melebihi kapasitas maksimal paket yang dipilih (Maks. '.$package->max_doors.' pintu).',
+                'errors' => [
+                    'jumlah_pintu' => [
+                        'Jumlah pintu melebihi kapasitas maksimal paket '.$package->name.' (Maks. '.$package->max_doors.' pintu).',
+                    ],
+                ],
+            ], Response::HTTP_UNPROCESSABLE_ENTITY);
+        }
+
         DB::beginTransaction();
 
         try {
-            $trialPackage = \App\Models\Package::where('billing_cycle', 'trial')->first();
-            $packageName = $trialPackage ? $trialPackage->name : 'Trial 14 Hari';
-            $durationDays = $trialPackage ? (int) $trialPackage->duration_days : 14;
-
             $user = User::create([
                 'name' => $request->validated('name'),
+                'nama_kos' => $request->validated('nama_kos'),
                 'email' => $request->validated('email'),
+                'whatsapp' => $request->validated('whatsapp'),
+                'jumlah_pintu' => $jumlahPintu,
                 'password' => $request->validated('password'),
-                'role' => 'owner', // Role owner
-                'status' => 'active', // Langsung aktif tanpa bayar
+                'role' => 'owner',
+                'status' => 'active',
                 'is_active' => true,
             ]);
 
+            $durationDays = (int) ($package->duration_days ?: 14);
+
             $subscription = Subscription::create([
                 'user_id' => $user->id,
-                'package_name' => $packageName,
+                'package_name' => $package->name,
                 'status' => 'trial',
                 'starts_at' => now(),
                 'trial_ends_at' => now()->addDays($durationDays),
@@ -84,7 +109,6 @@ class AuthController extends Controller
                 'message' => 'Registrasi akun trial berhasil.',
                 'data' => [
                     'user' => $user,
-                    'nama_kos' => $request->validated('nama_kos'),
                     'subscription' => $subscription,
                     'token' => $token,
                     'token_type' => 'bearer',
