@@ -33,10 +33,17 @@ class SubscriptionController extends Controller
     {
         $package = Package::create([
             'name' => $request->validated('name'),
-            'slug' => $request->validated('slug'),
+            'category' => $request->validated('category'),
+            'max_doors' => $request->validated('max_doors'),
+            'door_label' => $request->validated('door_label'),
             'price' => $request->validated('price'),
             'duration_days' => $request->validated('duration_days'),
+            'billing_cycle' => $request->validated('billing_cycle', 'monthly'),
+            'badge_text' => $request->validated('badge_text'),
+            'discount_label' => $request->validated('discount_label'),
+            'is_featured' => $request->validated('is_featured', false),
             'description' => $request->validated('description'),
+            'features' => $request->validated('features'),
             'is_active' => $request->validated('is_active', true),
         ]);
 
@@ -45,6 +52,29 @@ class SubscriptionController extends Controller
             'message' => 'Paket langganan berhasil dibuat.',
             'data' => $package,
         ], Response::HTTP_CREATED);
+    }
+
+    /**
+     * Memperbarui paket langganan yang sudah ada.
+     */
+    public function update(StorePackageRequest $request, int $id): JsonResponse
+    {
+        $package = Package::find($id);
+
+        if (! $package) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Paket langganan tidak ditemukan.',
+            ], Response::HTTP_NOT_FOUND);
+        }
+
+        $package->update($request->validated());
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Paket langganan berhasil diperbarui.',
+            'data' => $package->fresh(),
+        ], Response::HTTP_OK);
     }
 
     /**

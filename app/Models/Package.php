@@ -9,10 +9,17 @@ use Illuminate\Database\Eloquent\Model;
 
 #[Fillable([
     'name',
-    'slug',
+    'category',
+    'max_doors',
+    'door_label',
     'price',
     'duration_days',
+    'billing_cycle',
+    'badge_text',
+    'discount_label',
+    'is_featured',
     'description',
+    'features',
     'is_active',
 ])]
 class Package extends Model
@@ -28,9 +35,12 @@ class Package extends Model
     protected function casts(): array
     {
         return [
+            'max_doors' => 'integer',
             'price' => 'integer',
             'duration_days' => 'integer',
+            'is_featured' => 'boolean',
             'is_active' => 'boolean',
+            'features' => 'array',
         ];
     }
 }

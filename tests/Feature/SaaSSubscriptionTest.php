@@ -68,12 +68,14 @@ class SaaSSubscriptionTest extends TestCase
      */
     public function test_can_register_paid_with_monthly_package(): void
     {
+        $package = Package::first();
+
         $payload = [
             'name' => 'Owner Paid',
             'email' => 'owner.paid@example.com',
             'password' => 'secret123',
             'nama_kos' => 'Kos Sultan Pintu Satu',
-            'package_id' => 'monthly',
+            'package_id' => $package->id,
         ];
 
         $response = $this->postJson('/api/register/paid', $payload);
@@ -97,7 +99,7 @@ class SaaSSubscriptionTest extends TestCase
 
         $subscription = Subscription::where('user_id', $user->id)->first();
         $this->assertEquals('active', $subscription->status);
-        $this->assertEquals('Paket Bulanan', $subscription->package_name);
+        $this->assertEquals($package->name, $subscription->package_name);
         $this->assertNull($subscription->trial_ends_at);
         $this->assertNotNull($subscription->expires_at);
     }
@@ -163,9 +165,11 @@ class SaaSSubscriptionTest extends TestCase
             'expires_at' => null,
         ]);
 
+        $targetPackage = Package::skip(1)->first() ?? Package::first();
+
         $response = $this->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('/api/subscription/subscribe', [
-                'package_id' => 'yearly',
+                'package_id' => $targetPackage->id,
             ]);
 
         $response->assertStatus(200)
@@ -173,7 +177,7 @@ class SaaSSubscriptionTest extends TestCase
                 'status' => 'success',
             ])
             ->assertJsonPath('data.subscription.status', 'active')
-            ->assertJsonPath('data.subscription.package_name', 'Paket Tahunan');
+            ->assertJsonPath('data.subscription.package_name', $targetPackage->name);
 
         $updatedSubscription = Subscription::where('user_id', $user->id)->first();
         $this->assertEquals('active', $updatedSubscription->status);

@@ -26,10 +26,18 @@ class StorePackageRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'slug' => ['required', 'string', 'max:255', 'unique:packages,slug'],
+            'category' => ['required', 'string', 'max:255'],
+            'max_doors' => ['required', 'integer'],
+            'door_label' => ['required', 'string', 'max:255'],
             'price' => ['required', 'numeric', 'min:0'],
             'duration_days' => ['required', 'integer', 'min:1'],
-            'description' => ['nullable', 'string'],
+            'billing_cycle' => ['nullable', 'string', 'max:50'],
+            'badge_text' => ['nullable', 'string', 'max:255'],
+            'discount_label' => ['nullable', 'string', 'max:255'],
+            'is_featured' => ['nullable', 'boolean'],
+            'description' => ['required', 'string'],
+            'features' => ['required', 'array'],
+            'features.*' => ['required', 'string'],
             'is_active' => ['nullable', 'boolean'],
         ];
     }
@@ -43,12 +51,16 @@ class StorePackageRequest extends FormRequest
     {
         return [
             'name.required' => 'Nama paket wajib diisi.',
-            'slug.required' => 'Slug paket wajib diisi.',
-            'slug.unique' => 'Slug paket sudah digunakan.',
+            'category.required' => 'Kategori paket wajib diisi.',
+            'max_doors.required' => 'Batas jumlah pintu wajib diisi.',
+            'door_label.required' => 'Label pintu wajib diisi.',
             'price.required' => 'Harga paket wajib diisi.',
             'price.numeric' => 'Harga harus berupa angka.',
             'duration_days.required' => 'Durasi hari wajib diisi.',
             'duration_days.integer' => 'Durasi hari harus berupa bilangan bulat.',
+            'description.required' => 'Deskripsi paket wajib diisi.',
+            'features.required' => 'Daftar fitur paket wajib diisi.',
+            'features.array' => 'Daftar fitur harus berupa array.',
         ];
     }
 

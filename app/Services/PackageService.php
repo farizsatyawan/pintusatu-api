@@ -17,7 +17,7 @@ class PackageService
     }
 
     /**
-     * Find a package by integer ID or string slug from database.
+     * Find a package by integer ID or name from database.
      *
      * @return array<string, mixed>|null
      */
@@ -26,11 +26,11 @@ class PackageService
         $query = Package::where('is_active', true);
 
         if (is_numeric($packageId)) {
-            $query->where(function ($q) use ($packageId) {
-                $q->where('id', (int) $packageId)->orWhere('slug', (string) $packageId);
-            });
+            $query->where('id', (int) $packageId);
         } else {
-            $query->where('slug', (string) $packageId);
+            $query->where(function ($q) use ($packageId) {
+                $q->where('id', $packageId)->orWhere('name', (string) $packageId);
+            });
         }
 
         $pkg = $query->first();

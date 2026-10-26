@@ -14,10 +14,17 @@ return new class extends Migration
         Schema::create('packages', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->string('slug')->unique();
+            $table->string('category');
+            $table->integer('max_doors')->default(0); // -1 untuk unlimited
+            $table->string('door_label');
             $table->unsignedBigInteger('price');
-            $table->unsignedInteger('duration_days');
-            $table->text('description')->nullable();
+            $table->unsignedInteger('duration_days')->default(30);
+            $table->string('billing_cycle')->default('monthly');
+            $table->string('badge_text')->nullable();
+            $table->string('discount_label')->nullable();
+            $table->boolean('is_featured')->default(false);
+            $table->text('description');
+            $table->json('features');
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
