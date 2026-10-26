@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\MidtransController;
 use App\Http\Controllers\SubscriptionController;
 use Illuminate\Support\Facades\Route;
 
@@ -10,6 +11,7 @@ Route::post('/register/trial', [AuthController::class, 'registerTrial']);
 Route::post('/register/paid', [AuthController::class, 'registerPaid']);
 Route::post('/login', [AuthController::class, 'login']);
 Route::get('/packages', [SubscriptionController::class, 'packages']);
+Route::post('/midtrans/notification', [MidtransController::class, 'notification']);
 
 // Protected Routes (Memerlukan Token JWT)
 Route::middleware('auth:api')->group(function () {

@@ -66,8 +66,18 @@ class SaaSSubscriptionTest extends TestCase
     /**
      * Test POST /api/register/paid creates owner user and active subscription with expires_at.
      */
+    /**
+     * Test POST /api/register/paid creates user with pending_payment and order with snap_token.
+     */
     public function test_can_register_paid_with_monthly_package(): void
     {
+        \Illuminate\Support\Facades\Http::fake([
+            '*midtrans.com*' => \Illuminate\Support\Facades\Http::response([
+                'token' => 'mock-snap-token-12345',
+                'redirect_url' => 'https://app.sandbox.midtrans.com/snap/v2/vtweb/mock-snap-token-12345',
+            ], 201),
+        ]);
+
         $package = Package::first();
 
         $payload = [
@@ -88,20 +98,23 @@ class SaaSSubscriptionTest extends TestCase
                 'status',
                 'message',
                 'data' => [
-                    'user' => ['id', 'name', 'email', 'role'],
-                    'subscription' => ['id', 'package_name', 'status', 'starts_at', 'trial_ends_at', 'expires_at'],
-                    'token',
+                    'user' => ['id', 'name', 'email', 'role', 'status', 'is_active'],
+                    'nama_kos',
+                    'order' => ['id', 'order_id', 'package_name', 'gross_amount', 'status', 'snap_token', 'snap_redirect_url'],
                 ],
             ]);
 
         $user = User::where('email', 'owner.paid@example.com')->first();
         $this->assertEquals('owner', $user->role);
+        $this->assertEquals('pending_payment', $user->status);
+        $this->assertFalse($user->is_active);
 
-        $subscription = Subscription::where('user_id', $user->id)->first();
-        $this->assertEquals('active', $subscription->status);
-        $this->assertEquals($package->name, $subscription->package_name);
-        $this->assertNull($subscription->trial_ends_at);
-        $this->assertNotNull($subscription->expires_at);
+        // Verifikasi bahwa user pending_payment TIDAK BISA login
+        $loginResponse = $this->postJson('/api/login', [
+            'email' => 'owner.paid@example.com',
+            'password' => 'secret123',
+        ]);
+        $loginResponse->assertStatus(403);
     }
 
     /**
@@ -129,6 +142,13 @@ class SaaSSubscriptionTest extends TestCase
      */
     public function test_can_register_paid_with_numeric_package_id(): void
     {
+        \Illuminate\Support\Facades\Http::fake([
+            '*midtrans.com*' => \Illuminate\Support\Facades\Http::response([
+                'token' => 'mock-snap-token-numeric',
+                'redirect_url' => 'https://app.sandbox.midtrans.com/snap/v2/vtweb/mock-snap-token-numeric',
+            ], 201),
+        ]);
+
         $package = Package::first();
 
         $payload = [
@@ -183,5 +203,65 @@ class SaaSSubscriptionTest extends TestCase
         $this->assertEquals('active', $updatedSubscription->status);
         $this->assertNull($updatedSubscription->trial_ends_at);
         $this->assertNotNull($updatedSubscription->expires_at);
+    }
+
+    /**
+     * Test POST /api/midtrans/notification updates order to paid, activates user, and creates subscription.
+     */
+    public function test_midtrans_notification_activates_user_and_subscription(): void
+    {
+        $package = Package::first();
+        $user = User::factory()->create([
+            'role' => 'owner',
+            'status' => 'pending_payment',
+            'is_active' => false,
+        ]);
+
+        $orderId = 'ORDER-TEST-'.time();
+        $grossAmount = (string) $package->price;
+        $order = \App\Models\Order::create([
+            'user_id' => $user->id,
+            'package_id' => $package->id,
+            'order_id' => $orderId,
+            'gross_amount' => $package->price,
+            'status' => 'pending',
+            'snap_token' => 'mock-token',
+        ]);
+
+        $serverKey = config('midtrans.server_key');
+        $statusCode = '200';
+        $signature = hash('sha512', $orderId . $statusCode . $grossAmount . $serverKey);
+
+        $payload = [
+            'order_id' => $orderId,
+            'status_code' => $statusCode,
+            'gross_amount' => $grossAmount,
+            'signature_key' => $signature,
+            'transaction_status' => 'settlement',
+            'fraud_status' => 'accept',
+        ];
+
+        $response = $this->postJson('/api/midtrans/notification', $payload);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+                'message' => 'Notifikasi Midtrans berhasil diproses.',
+            ]);
+
+        // Verifikasi Order paid
+        $this->assertEquals('paid', $order->fresh()->status);
+
+        // Verifikasi User aktif dan sekarang BISA login
+        $userFresh = $user->fresh();
+        $this->assertEquals('active', $userFresh->status);
+        $this->assertTrue($userFresh->is_active);
+
+        // Verifikasi Subscription aktif
+        $subscription = Subscription::where('user_id', $user->id)->first();
+        $this->assertNotNull($subscription);
+        $this->assertEquals('active', $subscription->status);
+        $this->assertEquals($package->name, $subscription->package_name);
+        $this->assertNotNull($subscription->expires_at);
     }
 }

@@ -43,4 +43,12 @@ class Package extends Model
             'features' => 'array',
         ];
     }
+
+    /**
+     * Relasi ke semua order yang memilih paket ini.
+     */
+    public function orders(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
 }

@@ -6,11 +6,14 @@ use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterPaidRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Http\Requests\RegisterTrialRequest;
+use App\Models\Order;
 use App\Models\Subscription;
 use App\Models\User;
+use App\Services\MidtransService;
 use App\Services\PackageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -50,19 +53,25 @@ class AuthController extends Controller
         DB::beginTransaction();
 
         try {
+            $trialPackage = \App\Models\Package::where('billing_cycle', 'trial')->first();
+            $packageName = $trialPackage ? $trialPackage->name : 'Trial 14 Hari';
+            $durationDays = $trialPackage ? (int) $trialPackage->duration_days : 14;
+
             $user = User::create([
                 'name' => $request->validated('name'),
                 'email' => $request->validated('email'),
                 'password' => $request->validated('password'),
-                'role' => 'owner', // Hardcode role 'owner'
+                'role' => 'owner', // Role owner
+                'status' => 'active', // Langsung aktif tanpa bayar
+                'is_active' => true,
             ]);
 
             $subscription = Subscription::create([
                 'user_id' => $user->id,
-                'package_name' => 'Trial 14 Hari',
+                'package_name' => $packageName,
                 'status' => 'trial',
                 'starts_at' => now(),
-                'trial_ends_at' => now()->addDays(14),
+                'trial_ends_at' => now()->addDays($durationDays),
                 'expires_at' => null,
             ]);
 
@@ -93,7 +102,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Registrasi akun pemilik kos baru langsung memilih paket berbayar.
+     * Registrasi akun pemilik kos baru langsung memilih paket berbayar (Midtrans Snap).
      */
     public function registerPaid(RegisterPaidRequest $request): JsonResponse
     {
@@ -109,36 +118,75 @@ class AuthController extends Controller
         DB::beginTransaction();
 
         try {
+            // 1. Buat user baru dengan status pending_payment dan is_active = false
             $user = User::create([
                 'name' => $request->validated('name'),
                 'email' => $request->validated('email'),
                 'password' => $request->validated('password'),
-                'role' => 'owner', // Hardcode role 'owner'
+                'role' => 'owner',
+                'status' => 'pending_payment',
+                'is_active' => false,
             ]);
 
-            $subscription = Subscription::create([
+            // 2. Generate unique order ID
+            $orderId = 'ORDER-PINTUSATU-'.now()->format('YmdHis').'-'.strtoupper(Str::random(5));
+            $grossAmount = (int) $package['price'];
+
+            // 3. Request Snap Token ke Midtrans API
+            $snap = MidtransService::createSnapTransaction([
+                'transaction_details' => [
+                    'order_id' => $orderId,
+                    'gross_amount' => $grossAmount,
+                ],
+                'customer_details' => [
+                    'first_name' => $user->name,
+                    'email' => $user->email,
+                ],
+                'item_details' => [
+                    [
+                        'id' => (string) $package['id'],
+                        'price' => $grossAmount,
+                        'quantity' => 1,
+                        'name' => substr($package['name'], 0, 50),
+                    ],
+                ],
+            ]);
+
+            // 4. Catat transaksi pembayaran ke tabel orders
+            $order = Order::create([
                 'user_id' => $user->id,
-                'package_name' => $package['name'],
-                'status' => 'active',
-                'starts_at' => now(),
-                'trial_ends_at' => null,
-                'expires_at' => now()->addDays($package['duration_days']),
+                'package_id' => $package['id'],
+                'order_id' => $orderId,
+                'gross_amount' => $grossAmount,
+                'status' => 'pending',
+                'snap_token' => $snap['token'] ?? null,
+                'snap_redirect_url' => $snap['redirect_url'] ?? null,
             ]);
 
             DB::commit();
 
-            $token = auth('api')->login($user);
-
             return response()->json([
                 'status' => 'success',
-                'message' => 'Registrasi paket berbayar ('.$package['name'].') berhasil.',
+                'message' => 'Registrasi berhasil. Silakan selesaikan pembayaran paket langganan Anda.',
                 'data' => [
-                    'user' => $user,
+                    'user' => [
+                        'id' => $user->id,
+                        'name' => $user->name,
+                        'email' => $user->email,
+                        'role' => $user->role,
+                        'status' => $user->status,
+                        'is_active' => $user->is_active,
+                    ],
                     'nama_kos' => $request->validated('nama_kos'),
-                    'subscription' => $subscription,
-                    'token' => $token,
-                    'token_type' => 'bearer',
-                    'expires_in' => auth('api')->factory()->getTTL() * 60,
+                    'order' => [
+                        'id' => $order->id,
+                        'order_id' => $order->order_id,
+                        'package_name' => $package['name'],
+                        'gross_amount' => $order->gross_amount,
+                        'status' => $order->status,
+                        'snap_token' => $order->snap_token,
+                        'snap_redirect_url' => $order->snap_redirect_url,
+                    ],
                 ],
             ], Response::HTTP_CREATED);
         } catch (Throwable $e) {
@@ -146,7 +194,7 @@ class AuthController extends Controller
 
             return response()->json([
                 'status' => 'error',
-                'message' => 'Registrasi berbayar gagal: '.$e->getMessage(),
+                'message' => 'Registrasi pembayaran gagal: '.$e->getMessage(),
             ], Response::HTTP_INTERNAL_SERVER_ERROR);
         }
     }
@@ -165,11 +213,24 @@ class AuthController extends Controller
             ], Response::HTTP_UNAUTHORIZED);
         }
 
+        /** @var User $user */
+        $user = auth('api')->user();
+
+        // Poin 2: User tidak boleh login jika statusnya pending_payment / belum aktif
+        if ($user && ($user->status === 'pending_payment' || ! $user->is_active)) {
+            auth('api')->logout();
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Akun Anda belum aktif. Silakan selesaikan pembayaran paket langganan Anda terlebih dahulu.',
+            ], Response::HTTP_FORBIDDEN);
+        }
+
         return response()->json([
             'status' => 'success',
             'message' => 'Login berhasil.',
             'data' => [
-                'user' => auth('api')->user(),
+                'user' => $user,
                 'token' => $token,
                 'token_type' => 'bearer',
                 'expires_in' => auth('api')->factory()->getTTL() * 60,
